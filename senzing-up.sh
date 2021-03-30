@@ -1,48 +1,7 @@
 #!/usr/bin/env bash
 
-##set -x
 # Turn on pipefail. Check rc of commands piping output to other commands, e.g. the tar command to find project name
 set -o pipefail
-
-####
-# TODO
-# ----
-#
-# Revert echo -e / move to printf?
-# Write a Zen article
-# Add function to list all valid values for collections
-# Add prefix to all senzing-up output to differenciate 
-# Shell check
-# Move checking for required commands to function
-# Put printftty where needed
-# Add sanity checks for variations of args to ensure we get what we need for each action
-# Test on mac
-
-#! Test updating and its output
-#!   Odd stuff for applying new schemas!
-#! Add new packaging action for packaging only docker images not everything else to move additions into air gap
-#! New action = add to add to existing project ? Is this needed when you can run the scripts to pull? 
-#
-# Done
-# ----
-# 
-# Add the curl of the versions
-# Add in check for -h and --help
-# Add -v --version
-# Add git hub link to help
-# Added command line args and parsing for additional functionality 
-# Moved docker pull processing into a function 
-# New function to work out images in a collection - ALL, WEBAPPDEMO, etc
-# New function to package up a project 
-# Modify usage text
-# Implement packagin/deploying
-# New function to get abs path, older one didn't work if you specified . as a path
-# Error checking
-# Add instructions to end of package - how to extract, also copy (or extract out SenzingUp.sh)
-# Add pre-built arrays to environment
-# Create new project and package in one command
-# Can specify collections of images to pull, deafault is web app demo
-# When packaging check the project is a SzUp project and looks complete
 
 SCRIPT_VERSION=1.3
 
@@ -64,7 +23,7 @@ Where:
                          Values: ALL, WEBAPPDEMO, REST
                          Default: WEBAPPDEMO
 
-    -o | --output-dir  = Directory to write or deploy a package to (Optional)
+    -o | --output-dir  = Directory to write a packaged project to or deploy a previous packaged project to (Optional)
                          Value: Path to write to
                          Default: Root of --project-dir
 
@@ -80,6 +39,7 @@ Examples:
 
     $(basename "$0") -p ~/senzupProj1 -a CREATE ALL
         Create a project in the users home named senzupProj1, install all docker images for Senzing-Up
+
 "            
 
 # -----------------------------------------------------------------------------
@@ -138,45 +98,32 @@ get_image_names() {
 
     # Assigned passed in array to be used in the function
     COLLECTIONS=("$@")
-    ####
-    ####echo -e "\nCOLLECTIONS: " "${COLLECTIONS[@]}"
-
 
     if [[ ! -e ${SENZING_DOCKER_BIN_DIR} ]]; then
-        #### Check this diesn't fail
         # This is first install and we don't have a full project setup yet
         # Fetch the env script to parse the images that belong to a collections
-        ####echo -e "\nURL: " ${SENZING_ENVIRONMENT_URL}
-        ####SENZING_TMP_ENV=$(curl -X GET --silent ${SENZING_ENVIRONMENT_URL})
         SENZING_TMP_ENV=$(curl -X GET ${SENZING_ENVIRONMENT_URL})
     else
-        ####echo -e "\nFILE: " "${SENZING_PROJECT_DIR_REALPATH}/docker-bin/senzing-environment.py"
         SENZING_TMP_ENV=$(< "${SENZING_PROJECT_DIR_REALPATH}/docker-bin/senzing-environment.py")
     fi
 
-    ##echo -e "\nSENZING_TMP_ENV: " ${SENZING_TMP_ENV}
 
     # Loop through each -c argument from the command line that built the collections array
     # There could be multiple: -c WEBAPPDEMO -c POSTGRES
     for COLLECTION in "${COLLECTIONS[@]}";
     do
-        ####echo -e "\nCOLLECTION: " ${COLLECTION}
         # Extract the block from the env file that lists the images, add the lines returned to array
         # Use tr to remove null bytes from grep -z and prevent warning message
         COLLECTION_ENV_IMAGES=$(grep -oPz "(?s)export DOCKER_IMAGE_NAMES_${COLLECTION}=\(.*?\)" <<< "$SENZING_TMP_ENV" | tr -d '\000')
         get_image_names_return_ARRAY+=(${COLLECTION_ENV_IMAGES})
     done
 
-    ####echo -e "\nget_image_names_return_ARRAY: " ${get_image_names_return_ARRAY[@]}
     
     # Make array unique, if specifying multiple -c args there could be overlapping images to pull
     get_image_names_return_UNIQUE=($(printf "%s\n" "${get_image_names_return_ARRAY[@]}" | sort -u | tr '\n' ' '))
     
     # Replace the double braces used in the env file to make the string usable in bash evaluation for the version details
     get_image_names_return_UNIQUE_FIXED=($(printf "%s\n" "${get_image_names_return_UNIQUE[@]}" | sed -e 's/{{/{/' -e 's/}}/}/'))
-
-    ####echo -e "\nget_image_names_return_UNIQUE: " ${get_image_names_return_UNIQUE[@]}
-    ####echo -e "\nget_image_names_return_UNIQUE_FIXED: " ${get_image_names_return_UNIQUE_FIXED[@]}
 
     # Collect only entries that are the image version records, i.e. remove the junk, export xxxx (...)
     for DOCKER_IMAGE_NAME in ${get_image_names_return_UNIQUE_FIXED[@]};
@@ -187,7 +134,6 @@ get_image_names() {
             get_image_names_return+=($(eval "echo "${DOCKER_IMAGE_NAME}""))
         fi
     done
-    ####echo -e "\nget_image_names_return: " ${get_image_names_return[@]}
 }
 
 
@@ -196,7 +142,6 @@ docker_pull() {
 
     # Assigned passed in array to be used in the function
     IMAGES=("$@")
-    ####echo -e "\nIMAGES: " "${IMAGES[@]}"
 
     printf_tty "\n${SCRIPT_OUTPUT} Checking for and pulling any required Docker images...\n\n"
     
@@ -244,26 +189,19 @@ package() {
 
     elif [[ ! -z ${SENZING_UP_COLLECTIONS_SET} ]] && [[ -z ${FIRST_TIME_INSTALL} ]]; then
         printf "\n${SCRIPT_OUTPUT} A collection was specified and project exists, pulling collection set images to ensure have everything to package..."
-        ####
-        ####echo -e "\nCOLL: ${SENZING_UP_COLLECTIONS[@]}"
         get_image_names ${SENZING_UP_COLLECTIONS[@]}
     else
         printf "\n${SCRIPT_OUTPUT} New project creation, already pulled everything for the project..."
         get_image_names ${SENZING_UP_COLLECTIONS[@]}
     fi
 
-    ####
-    ####echo -e "\n get_image_names: ${get_image_names_return[@]}"
-
     # Get intersect of current images and collection array from get_image_names
     IMAGES_INTERSECT=($(comm -12 <(printf '%s\n' "${get_image_names_return[@]}" | sort) <(printf '%s\n' "${DOCKER_IMAGES_CURRENT[@]}" | sort)))
     
-    ####echo -e "\n IMAGES_INTERSECT: ${IMAGES_INTERSECT}"
     # If there are no images on the local machine, set the intersect to be the collection that was specified
     if [[ ${#IMAGES_INTERSECT[@]} -eq 0 ]]; then
         IMAGES_INTERSECT=${get_image_names_return[@]}
     fi
-    ####echo -e "\n IMAGES_INTERSECT: ${IMAGES_INTERSECT}"
 
     printf_tty "\n${SCRIPT_OUTPUT} Packaging project: ${SENZING_PROJECT_NAME}\n"
     printf_tty "\n${SCRIPT_OUTPUT} The next steps will take many minutes, please be patient!"
@@ -310,11 +248,9 @@ deploy() {
 
     # Correct docker-environment-vars
     DEPLOY_ENV_VARS=${NEW_PROJ_PATH}"/docker-bin/docker-environment-vars.sh"
-    ####echo -e "\nDEPLOY_ENV_VARS:" ${DEPLOY_ENV_VARS}
 
     # Attempt to work out ip address
     IP=$(get_ip_addr)
-    ####echo -e "\nIP:" ${IP}
 
     printf_tty "\n${SCRIPT_OUTPUT} Correcting docker-environment-vars.sh for deployed project..."
     # Use ! as delimiter, vars have / in 
@@ -387,7 +323,6 @@ get_ip_addr() {
         IP_TRY=$(hostname -I  2>/dev/null)
     fi
 
-    ####
     if [[ -z ${IP_TRY} ]]; then
         IP_TRY="<UNKNOWN>"
     fi
@@ -414,13 +349,6 @@ generic_error_check() {
     fi
 }
 
-##### printf with SCRIPT_OUTPUT prefix
-####printf_so() {
-####
-####    printf "%s " ${SCRIPT_OUTPUT}
-####    builtin printf "$@"
-####    exit
-####}
 
 # Check if non-verbose was set, if so print to both file (normal) and to screen
 printf_tty() {
@@ -583,7 +511,7 @@ SENZING_PROJECT_NAME=$(basename "${SENZING_PROJECT_DIR_REALPATH}")
 SENZING_VAR_DIR=${SENZING_PROJECT_DIR_REALPATH}/var
 TERMINAL_TTY=/dev/tty
 
-#### This needs to change when pushed to the master one
+#### This needs to change when pushed to master
 SENZING_ENVIRONMENT_URL='https://raw.githubusercontent.com/Senzing/senzing-environment/Issue-80.Ant.1/senzing-environment.py'
 SENZING_DOCKER_VERSIONS_LATEST_URL='https://raw.githubusercontent.com/Senzing/knowledge-base/master/lists/versions-latest.sh'
 SENZING_DOCKER_VERSIONS_LATEST=${SENZING_PROJECT_DIR_REALPATH}/docker_versions_latest.sh
@@ -612,7 +540,6 @@ if [[ ( ! -d ${SENZING_PROJECT_DIR} ) ]]; then
 
 # Don't update if packaging or deploying
 elif [[ ${SENZING_UP_ACTION} != "PACKAGE" && ${SENZING_UP_ACTION} != "DEPLOY" ]]; then
-    ####
     printf "\n"
     read -p "Existing Senzing-Up project specified, check for and install updates?  [y/N] " UPDATES_RESPONSE
     case ${UPDATES_RESPONSE} in
@@ -678,8 +605,6 @@ printf "\n%s\n" ${HORIZONTAL_RULE}
 if [[ ${SENZING_UP_ACTION} == "PACKAGE" ]]; then
     if [[ -z ${FIRST_TIME_INSTALL} ]]; then
         printf "\n%s Packaging and project dir already exists..." ${SCRIPT_OUTPUT}
-        ##printf_so "\nPackaging and project dir already exists..."
-        ##printf_so "\n%s - Packaging and project dir already exists..." "Testing"
         package
         # When the project already exists assumed to have be tested previously, we can exit
         exit 0
@@ -692,12 +617,10 @@ fi
 
 # Action == deploy?
 if [[ ${SENZING_UP_ACTION} == "DEPLOY" ]]; then
-    #### Check that -i was specified + it exists + does it contain anything already? 
     deploy
     exit 0
 fi
 
-####
 # Fetch the latest pinned information for versions
 printf "\n${SCRIPT_OUTPUT} Fetching latest Senzing Docker assets version information...\n"
 
@@ -708,7 +631,7 @@ curl -X GET \
     --output ${SENZING_DOCKER_VERSIONS_LATEST} \
     ${SENZING_DOCKER_VERSIONS_LATEST_URL} 
 
-#### If an update is requested but can't pull latest version file should exit 
+# Issues fetching the latest versions info
 if [[ $? != "0" ]]; then
     printf_tty "\nWARNING: Unable to fetch latest version details for Docker assets from:"
     printf_tty "           ${SENZING_DOCKER_VERSIONS_LATEST_URL}\n"
@@ -735,7 +658,6 @@ if [[ ( ! -z ${FIRST_TIME_INSTALL} ) \
    || ( ! -z ${PERFORM_UPDATES} ) \
    ]]; then
     # Build the get_image_names_return array to intersect with the currently installed images
-    ## COLLECTION_ARRAY=(ALL)
     get_image_names ${SENZING_UP_COLLECTIONS[@]}
     docker_pull ${get_image_names_return[@]}
 fi
@@ -840,7 +762,7 @@ fi
 
 # If needed, populate docker-bin directory.
 DOCKER_ENVIRONMENT_VARS_FILENAME=${SENZING_DOCKER_BIN_DIR}/docker-environment-vars.sh
-####
+
 if [[ ( ! -e ${DOCKER_ENVIRONMENT_VARS_FILENAME} ) ]]; then
 
     # If needed, add senzing-environment.py.
@@ -866,7 +788,6 @@ if [[ ( ! -e ${DOCKER_ENVIRONMENT_VARS_FILENAME} ) ]]; then
     sudo docker network create senzing-up
     echo "export SENZING_NETWORK_PARAMETER=\"--net senzing-up\"" >> ${SENZING_PROJECT_DIR}/docker-bin/docker-environment-vars.sh
 
-    #### Is this in the correct location?
     if [[ ( ! -d ${SENZING_DOCKER_BIN_DIR} ) ]]; then
         mkdir -p ${SENZING_DOCKER_BIN_DIR}
     fi
@@ -914,7 +835,6 @@ if [[ ( ! -z ${PERFORM_UPDATES} ) ]]; then
 
     printf_tty "\n${SCRIPT_OUTPUT} Updating Senzing configuration..."
 
-    #### Why?
     # Remove obsolete GTC files.
     sudo rm --force ${SENZING_G2_DIR}/resources/config/g2core-config-upgrade-1.9-to-1.10.gtc
 
@@ -970,7 +890,6 @@ fi
 
 
 # Move docker_versions_latest.sh in to docker-bin, do after all other actions
-#### When first downloading this test for docker-bin and place there if can?
 mv ${SENZING_DOCKER_VERSIONS_LATEST} ${SENZING_DOCKER_BIN_DIR} > /dev/null 2>&1
 
 # Print prolog.
