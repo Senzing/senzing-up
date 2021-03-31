@@ -19,7 +19,7 @@ Where:
                          Values: Create, Package, Deploy 
                          Default: Create
 
-    -c  | --collection = One or more collection of Docker assets can be specified (Optional)
+    -c | --collection  = One or more collection of Docker assets can be specified (Optional)
                          Values: ALL, WEBAPPDEMO, REST
                          Default: WEBAPPDEMO
 
@@ -349,6 +349,12 @@ generic_error_check() {
     fi
 }
 
+####
+# Can't use ${var^^} for uppercase, Apple purging more GPL and reverted to bash V3. Thanks Apple!
+upper_case() {
+    echo $1 | tr "[:lower:]" "[:upper:]"
+}
+
 
 # Check if non-verbose was set, if so print to both file (normal) and to screen
 printf_tty() {
@@ -384,11 +390,13 @@ while [[ ${1} != "" ]]; do
         ;;
         -a | --action )
             shift
-            SENZING_UP_ACTION=${1^^}
+            ####SENZING_UP_ACTION=${1^^}
+            SENZING_UP_ACTION=$(upper_case $1)
         ;;
         -c | --collection )
             shift
-            SENZING_UP_COLLECTIONS+=${1^^}" "
+            ####SENZING_UP_COLLECTIONS+=${1^^}" "
+            SENZING_UP_COLLECTIONS+=$(upper_case $1)" "
             SENZING_UP_COLLECTIONS_SET=1
         ;;
         -o | --output-dir )
@@ -816,7 +824,7 @@ if [[ ! -e ${SENZING_ETC_DIR} ]]; then
 fi
 
 # If requested, update Senzing database schema and configuration.
-if [[ ( ! -z ${PERFORM_UPDATES} ) ]]; then
+if [[ ! -z ${PERFORM_UPDATES} ]]; then
 
     printf_tty "\n${SCRIPT_OUTPUT} Updating Senzing database schema..."
 
